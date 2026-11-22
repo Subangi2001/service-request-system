@@ -24,6 +24,18 @@ function requireNumberEnv(name: string): number {
   return value;
 }
 
+// The secret used to sign login tokens. A short secret can be guessed, so we insist on a long one.
+function requireJwtSecret(): string {
+  const secret = requireEnv('JWT_SECRET');
+  if (secret.length < 32) {
+    throw new Error(
+      'JWT_SECRET must be at least 32 characters long. Generate one with: ' +
+        'node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+    );
+  }
+  return secret;
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV?.trim() || 'development',
   port: requireNumberEnv('PORT'),
@@ -35,7 +47,7 @@ export const env = {
     database: requireEnv('DB_NAME'),
   },
   jwt: {
-    secret: requireEnv('JWT_SECRET'),
+    secret: requireJwtSecret(),
     expiresIn: requireEnv('JWT_EXPIRES_IN'),
   },
   corsOrigin: requireEnv('CORS_ORIGIN'),
