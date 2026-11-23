@@ -15,7 +15,9 @@
     "db:verify": "tsx src/scripts/verifySchema.ts",
     "check:auth": "tsx src/scripts/checkAuth.ts",
     "check:users": "tsx src/scripts/checkUsers.ts",
-    "check:requests": "tsx src/scripts/checkRequests.ts"
+    "check:requests": "tsx src/scripts/checkRequests.ts",
+    "check:transitions": "tsx src/scripts/checkTransitions.ts"
+    
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

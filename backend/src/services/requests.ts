@@ -248,3 +248,263 @@ export async function updateRequest(actor: AuthUser, id: number, version: number
 
   return getRequestForUser(actor, id);
 }
+
+// Look up a developer in the actor's organization and verify they are active.
+async function findActiveDeveloper(trx: Knex.Transaction, organizationId: number, developerId: number) {
+  const user = await trx('users')
+    .select('id', 'name', 'role', 'is_active', 'organization_id')
+    .where({ id: developerId, organization_id: organizationId })
+    .first();
+
+  if (!user || user.role !== 'developer') {
+    throw new AppError(400, 'INVALID_ASSIGNEE', 'Assignee must be a developer in your organization.');
+  }
+  if (!user.is_active) {
+    throw new AppError(400, 'ASSIGNEE_INACTIVE', 'Cannot assign an inactive developer.');
+  }
+
+  return user;
+}
+
+// 1. First assignment: Manager assigns a request currently in "Under Review".
+// Automatically moves status to "Assigned" and records two audit entries.
+export async function assignRequest(actor: AuthUser, id: number, version: number, assigneeId: number) {
+  const organizationId = organizationIdOf(actor);
+
+  await db.transaction(async (trx) => {
+    // 1. Verify developer belongs to the same org and is active
+    await findActiveDeveloper(trx, organizationId, assigneeId);
+
+    // 2. Perform optimistic update: must match id, org, version, and status 'Under Review'
+    const updated = await trx('service_requests')
+      .where({ id, organization_id: organizationId, version, status: 'Under Review' })
+      .update({
+        assignee_id: assigneeId,
+        status: 'Assigned',
+        version: trx.raw('version + 1'),
+        updated_at: trx.fn.now(),
+      })
+      .returning(['id', 'version']);
+
+    if (updated.length === 0) {
+      const current = await trx('service_requests')
+        .select('status', 'version')
+        .where({ id, organization_id: organizationId })
+        .first();
+
+      if (!current) {
+        throw new AppError(404, 'NOT_FOUND', 'Request not found.');
+      }
+      if (current.status !== 'Under Review') {
+        throw new AppError(400, 'INVALID_TRANSITION', 'Requests can only be assigned while Under Review.');
+      }
+      throw new AppError(
+        409,
+        'VERSION_CONFLICT',
+        'This request was changed by someone else. Reload it and try again.',
+        { currentVersion: current.version }
+      );
+    }
+
+    // 3. Write audit log for assignment
+    await writeAudit(trx, {
+      organizationId,
+      requestId: id,
+      actorId: actor.id,
+      action: 'REQUEST_ASSIGNED',
+      newValue: { assignee_id: assigneeId },
+    });
+
+    // 4. Write audit log for status change
+    await writeAudit(trx, {
+      organizationId,
+      requestId: id,
+      actorId: actor.id,
+      action: 'STATUS_CHANGED',
+      oldValue: { status: 'Under Review' },
+      newValue: { status: 'Assigned' },
+    });
+  });
+
+  return getRequestForUser(actor, id);
+}
+
+// 2. Reassignment: Manager reassigns a request currently in Assigned, In Progress, or Reopened.
+// Requires a reason and leaves the status unchanged.
+export async function reassignRequest(
+  actor: AuthUser,
+  id: number,
+  version: number,
+  newAssigneeId: number,
+  reason: string
+) {
+  const organizationId = organizationIdOf(actor);
+
+  await db.transaction(async (trx) => {
+    // 1. Verify developer belongs to same org and is active
+    await findActiveDeveloper(trx, organizationId, newAssigneeId);
+
+    // 2. Read current assignee to ensure we are not reassigning to the same person
+    const current = await trx('service_requests')
+      .select('assignee_id', 'status', 'version')
+      .where({ id, organization_id: organizationId })
+      .first();
+
+    if (!current) {
+      throw new AppError(404, 'NOT_FOUND', 'Request not found.');
+    }
+
+    const allowedStatuses: RequestStatus[] = ['Assigned', 'In Progress', 'Reopened'];
+    if (!allowedStatuses.includes(current.status as RequestStatus)) {
+      throw new AppError(
+        400,
+        'INVALID_STATE',
+        `Cannot reassign a request with status ${current.status}. Reassignment is only allowed for Assigned, In Progress, or Reopened.`
+      );
+    }
+
+    if (current.assignee_id === newAssigneeId) {
+      throw new AppError(400, 'ALREADY_ASSIGNED', 'The request is already assigned to this developer.');
+    }
+
+    if (current.version !== version) {
+      throw new AppError(
+        409,
+        'VERSION_CONFLICT',
+        'This request was changed by someone else. Reload it and try again.',
+        { currentVersion: current.version }
+      );
+    }
+
+    // 3. Perform update
+    await trx('service_requests')
+      .where({ id, organization_id: organizationId, version })
+      .update({
+        assignee_id: newAssigneeId,
+        version: trx.raw('version + 1'),
+        updated_at: trx.fn.now(),
+      });
+
+    // 4. Write audit log
+    await writeAudit(trx, {
+      organizationId,
+      requestId: id,
+      actorId: actor.id,
+      action: 'REQUEST_REASSIGNED',
+      oldValue: { assignee_id: current.assignee_id },
+      newValue: { assignee_id: newAssigneeId },
+      reason: reason.trim(),
+    });
+  });
+
+  return getRequestForUser(actor, id);
+}
+
+// 3. Status Transition: Move request through its lifecycle.
+export async function transitionRequestStatus(
+  actor: AuthUser,
+  id: number,
+  version: number,
+  newStatus: RequestStatus,
+  reason?: string
+) {
+  const organizationId = organizationIdOf(actor);
+
+  await db.transaction(async (trx) => {
+    const current = await trx('service_requests')
+      .select('id', 'status', 'assignee_id', 'version')
+      .where({ id, organization_id: organizationId })
+      .first();
+
+    if (!current) {
+      throw new AppError(404, 'NOT_FOUND', 'Request not found.');
+    }
+
+    if (current.version !== version) {
+      throw new AppError(
+        409,
+        'VERSION_CONFLICT',
+        'This request was changed by someone else. Reload it and try again.',
+        { currentVersion: current.version }
+      );
+    }
+
+    const fromStatus = current.status as RequestStatus;
+
+    if (fromStatus === newStatus) {
+      throw new AppError(400, 'SAME_STATUS', `Request is already in ${newStatus} status.`);
+    }
+
+    // Enforce transition matrix and role permissions
+    // 1. Submitted -> Under Review (Manager only)
+    if (fromStatus === 'Submitted' && newStatus === 'Under Review') {
+      if (actor.role !== 'manager') {
+        throw new AppError(403, 'FORBIDDEN', 'Only managers can move requests to Under Review.');
+      }
+    }
+    // 2. Assigned -> In Progress (Assigned developer only)
+    else if (fromStatus === 'Assigned' && newStatus === 'In Progress') {
+      if (actor.role !== 'developer' || current.assignee_id !== actor.id) {
+        throw new AppError(403, 'FORBIDDEN', 'Only the assigned developer can start progress on this request.');
+      }
+    }
+    // 3. In Progress -> Completed (Assigned developer only)
+    else if (fromStatus === 'In Progress' && newStatus === 'Completed') {
+      if (actor.role !== 'developer' || current.assignee_id !== actor.id) {
+        throw new AppError(403, 'FORBIDDEN', 'Only the assigned developer can complete this request.');
+      }
+    }
+    // 4. Completed -> Reopened (Manager only, reason required)
+    else if (fromStatus === 'Completed' && newStatus === 'Reopened') {
+      if (actor.role !== 'manager') {
+        throw new AppError(403, 'FORBIDDEN', 'Only managers can reopen a completed request.');
+      }
+      if (!reason || reason.trim() === '') {
+        throw new AppError(400, 'REASON_REQUIRED', 'A reason is required when reopening a request.');
+      }
+    }
+    // 5. Reopened -> In Progress (Assigned developer only)
+    else if (fromStatus === 'Reopened' && newStatus === 'In Progress') {
+      if (actor.role !== 'developer' || current.assignee_id !== actor.id) {
+        throw new AppError(403, 'FORBIDDEN', 'Only the assigned developer can resume progress on this request.');
+      }
+    } else {
+      throw new AppError(
+        400,
+        'INVALID_TRANSITION',
+        `Transition from "${fromStatus}" to "${newStatus}" is not permitted.`
+      );
+    }
+
+    // Prepare fields to update
+    const updateFields: Record<string, unknown> = {
+      status: newStatus,
+      version: trx.raw('version + 1'),
+      updated_at: trx.fn.now(),
+    };
+
+    // Setting completed_at when completed; clearing it when reopened
+    if (newStatus === 'Completed') {
+      updateFields.completed_at = trx.fn.now();
+    } else if (newStatus === 'Reopened') {
+      updateFields.completed_at = null;
+    }
+
+    await trx('service_requests')
+      .where({ id, organization_id: organizationId, version })
+      .update(updateFields);
+
+    // Record audit log
+    await writeAudit(trx, {
+      organizationId,
+      requestId: id,
+      actorId: actor.id,
+      action: 'STATUS_CHANGED',
+      oldValue: { status: fromStatus },
+      newValue: { status: newStatus },
+      reason: reason ? reason.trim() : null,
+    });
+  });
+
+  return getRequestForUser(actor, id);
+}

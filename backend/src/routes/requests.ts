@@ -3,9 +3,12 @@ import { CATEGORIES, PRIORITIES, STATUSES } from '../domain/requestConstants';
 import { authenticate } from '../middleware/authenticate';
 import { requireRole } from '../middleware/requireRole';
 import {
+  assignRequest,
   createRequest,
   getRequestForUser,
   listRequests,
+  reassignRequest,
+  transitionRequestStatus,
   updateRequest,
   type ListFilters,
   type RequestChanges,
@@ -106,4 +109,52 @@ requestsRouter.patch('/:id', requireRole('manager'), async (req, res) => {
   }
 
   res.json({ request: await updateRequest(req.user!, id, version!, changes) });
+});
+
+// POST /api/requests/:id/assign   body: { "assigneeId": 12, "version": 1 }
+// Managers only. Initial assignment from "Under Review" to "Assigned".
+requestsRouter.post('/:id/assign', requireRole('manager'), async (req, res) => {
+  const id = parseIdParam(req.params.id, 'id');
+  const body = readBodyObject(req.body);
+  const issues: FieldIssues = {};
+
+  const assigneeId = readPositiveInt(body, 'assigneeId', issues, { required: true });
+  const version = readPositiveInt(body, 'version', issues, { required: true });
+  throwIfIssues(issues);
+
+  const request = await assignRequest(req.user!, id, version!, assigneeId!);
+  res.json({ request });
+});
+
+// POST /api/requests/:id/reassign   body: { "assigneeId": 14, "reason": "...", "version": 2 }
+// Managers only. Reassignment while Assigned, In Progress, or Reopened.
+requestsRouter.post('/:id/reassign', requireRole('manager'), async (req, res) => {
+  const id = parseIdParam(req.params.id, 'id');
+  const body = readBodyObject(req.body);
+  const issues: FieldIssues = {};
+
+  const assigneeId = readPositiveInt(body, 'assigneeId', issues, { required: true });
+  const reason = readRequiredString(body, 'reason', issues, { maxLength: 500 });
+  const version = readPositiveInt(body, 'version', issues, { required: true });
+  throwIfIssues(issues);
+
+  const request = await reassignRequest(req.user!, id, version!, assigneeId!, reason!);
+  res.json({ request });
+});
+
+// POST /api/requests/:id/status   body: { "status": "In Progress", "version": 2, "reason"?: "..." }
+// Managers and developers. Reopening requires a reason.
+requestsRouter.post('/:id/status', requireRole('manager', 'developer'), async (req, res) => {
+  const id = parseIdParam(req.params.id, 'id');
+  const body = readBodyObject(req.body);
+  const issues: FieldIssues = {};
+
+  const status = readEnum(body, 'status', issues, STATUSES, true);
+  const version = readPositiveInt(body, 'version', issues, { required: true });
+  throwIfIssues(issues);
+
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : undefined;
+
+  const request = await transitionRequestStatus(req.user!, id, version!, status!, reason);
+  res.json({ request });
 });
