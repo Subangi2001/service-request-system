@@ -13,12 +13,12 @@
     "db:rollback": "npm run knex -- migrate:rollback",
     "db:seed": "npm run knex -- seed:run",
     "db:verify": "tsx src/scripts/verifySchema.ts",
+    "test": "vitest run",
     "check:auth": "tsx src/scripts/checkAuth.ts",
     "check:users": "tsx src/scripts/checkUsers.ts",
     "check:requests": "tsx src/scripts/checkRequests.ts",
     "check:transitions": "tsx src/scripts/checkTransitions.ts",
     "check:dashboard": "tsx src/scripts/checkDashboard.ts"
-    
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -35,7 +35,10 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.3.2",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.1"
   }
 }
