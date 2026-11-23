@@ -4,6 +4,7 @@ import { env } from './config/env';
 import { checkDatabaseConnection } from './db';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { authRouter } from './routes/auth';
+import { dashboardRouter } from './routes/dashboard';
 import { organizationsRouter } from './routes/organizations';
 import { requestsRouter } from './routes/requests';
 import { usersRouter } from './routes/users';
@@ -28,6 +29,7 @@ app.get('/health', async (_req, res) => {
 
 // API routes
 app.use('/api/auth', authRouter);
+app.use('/api/dashboard', dashboardRouter);
 app.use('/api/organizations', organizationsRouter);
 app.use('/api/requests', requestsRouter);
 app.use('/api/users', usersRouter);

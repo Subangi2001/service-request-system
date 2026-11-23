@@ -16,7 +16,8 @@
     "check:auth": "tsx src/scripts/checkAuth.ts",
     "check:users": "tsx src/scripts/checkUsers.ts",
     "check:requests": "tsx src/scripts/checkRequests.ts",
-    "check:transitions": "tsx src/scripts/checkTransitions.ts"
+    "check:transitions": "tsx src/scripts/checkTransitions.ts",
+    "check:dashboard": "tsx src/scripts/checkDashboard.ts"
     
   },
   "dependencies": {

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { db } from '../db';
 import { CATEGORIES, PRIORITIES, STATUSES } from '../domain/requestConstants';
 import { authenticate } from '../middleware/authenticate';
 import { requireRole } from '../middleware/requireRole';
@@ -13,6 +14,7 @@ import {
   type ListFilters,
   type RequestChanges,
 } from '../services/requests';
+import { organizationIdOf } from '../utils/tenant';
 import {
   parseIdParam,
   readBodyObject,
@@ -85,6 +87,42 @@ requestsRouter.post('/', requireRole('manager'), async (req, res) => {
 requestsRouter.get('/:id', requireRole('manager', 'developer'), async (req, res) => {
   const id = parseIdParam(req.params.id, 'id');
   res.json({ request: await getRequestForUser(req.user!, id) });
+});
+
+// GET /api/requests/:id/audit   (managers only)
+// Returns audit log history for a specific request in the manager's organization.
+requestsRouter.get('/:id/audit', requireRole('manager'), async (req, res) => {
+  const id = parseIdParam(req.params.id, 'id');
+  // First ensure the request exists in the manager's organization
+  await getRequestForUser(req.user!, id);
+
+  const logs = await db('audit_logs as a')
+    .join('users as u', 'u.id', 'a.actor_id')
+    .select(
+      'a.id',
+      'a.action',
+      'a.old_value',
+      'a.new_value',
+      'a.reason',
+      'a.created_at',
+      'a.actor_id',
+      'u.name as actor_name',
+      'u.role as actor_role'
+    )
+    .where({ 'a.request_id': id, 'a.organization_id': organizationIdOf(req.user!) })
+    .orderBy('a.id', 'asc');
+
+  res.json({
+    auditLogs: logs.map((log) => ({
+      id: log.id,
+      action: log.action,
+      oldValue: log.old_value,
+      newValue: log.new_value,
+      reason: log.reason,
+      createdAt: log.created_at,
+      actor: { id: log.actor_id, name: log.actor_name, role: log.actor_role },
+    })),
+  });
 });
 
 // PATCH /api/requests/:id   (managers only, and not once the request is Completed)
