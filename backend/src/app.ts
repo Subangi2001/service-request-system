@@ -5,6 +5,7 @@ import { checkDatabaseConnection } from './db';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { authRouter } from './routes/auth';
 import { organizationsRouter } from './routes/organizations';
+import { requestsRouter } from './routes/requests';
 import { usersRouter } from './routes/users';
 
 // Build the Express application. server.ts starts it; tests will import it directly.
@@ -28,6 +29,7 @@ app.get('/health', async (_req, res) => {
 // API routes
 app.use('/api/auth', authRouter);
 app.use('/api/organizations', organizationsRouter);
+app.use('/api/requests', requestsRouter);
 app.use('/api/users', usersRouter);
 
 // These two must stay LAST.

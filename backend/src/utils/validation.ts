@@ -88,3 +88,93 @@ export function parseIdParam(value: unknown, field: string): number {
   }
   return Number(value);
 }
+
+// Read a text field that must be one of a fixed list (for example priority).
+// When `required` is false, an empty or missing value is fine and returns undefined.
+export function readEnum<T extends string>(
+  source: Record<string, unknown>,
+  field: string,
+  issues: FieldIssues,
+  allowed: readonly T[],
+  required = true
+): T | undefined {
+  const value = source[field];
+  if (value === undefined || value === null || value === '') {
+    if (required) {
+      issues[field] = `${field} is required and must be one of: ${allowed.join(', ')}.`;
+    }
+    return undefined;
+  }
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    issues[field] = `${field} must be one of: ${allowed.join(', ')}.`;
+    return undefined;
+  }
+  return value as T;
+}
+
+// Read a positive whole number (a JSON number, or digits inside a text such as a query string value).
+export function readPositiveInt(
+  source: Record<string, unknown>,
+  field: string,
+  issues: FieldIssues,
+  options: { required?: boolean; max?: number } = {}
+): number | undefined {
+  const { required = true, max } = options;
+  const value = source[field];
+  if (value === undefined || value === null || value === '') {
+    if (required) {
+      issues[field] = `${field} is required and must be a positive whole number.`;
+    }
+    return undefined;
+  }
+  const number =
+    typeof value === 'number' ? value : typeof value === 'string' && /^[0-9]{1,15}$/.test(value) ? Number(value) : NaN;
+  if (!Number.isInteger(number) || number <= 0) {
+    issues[field] = `${field} must be a positive whole number.`;
+    return undefined;
+  }
+  if (max !== undefined && number > max) {
+    issues[field] = `${field} must be at most ${max}.`;
+    return undefined;
+  }
+  return number;
+}
+
+// Read a date and time such as 2026-12-01T09:00:00Z or 2026-12-01T14:30:00+05:30.
+// A time zone (Z or +hh:mm) is REQUIRED, so there is never any doubt about the exact moment.
+const DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+export function readDateTime(
+  source: Record<string, unknown>,
+  field: string,
+  issues: FieldIssues,
+  required = true
+): Date | undefined {
+  const value = source[field];
+  if (value === undefined || value === null || value === '') {
+    if (required) {
+      issues[field] = `${field} is required and must be a date and time like 2026-12-01T09:00:00Z.`;
+    }
+    return undefined;
+  }
+
+  const match = typeof value === 'string' ? DATE_TIME_PATTERN.exec(value) : null;
+  if (!match) {
+    issues[field] = `${field} must be a date and time with a time zone, like 2026-12-01T09:00:00Z or 2026-12-01T14:30:00+05:30.`;
+    return undefined;
+  }
+
+  // JavaScript silently turns 31 February into 3 March, so check that the calendar date really exists.
+  const [, year, month, day, hour, minute] = match;
+  const calendar = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  const realDate =
+    calendar.getUTCFullYear() === Number(year) &&
+    calendar.getUTCMonth() === Number(month) - 1 &&
+    calendar.getUTCDate() === Number(day);
+  const date = new Date(value as string);
+  if (!realDate || Number(hour) > 23 || Number(minute) > 59 || Number.isNaN(date.getTime())) {
+    issues[field] = `${field} is not a real date and time.`;
+    return undefined;
+  }
+  return date;
+}

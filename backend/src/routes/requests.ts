@@ -1,0 +1,109 @@
+import { Router } from 'express';
+import { CATEGORIES, PRIORITIES, STATUSES } from '../domain/requestConstants';
+import { authenticate } from '../middleware/authenticate';
+import { requireRole } from '../middleware/requireRole';
+import {
+  createRequest,
+  getRequestForUser,
+  listRequests,
+  updateRequest,
+  type ListFilters,
+  type RequestChanges,
+} from '../services/requests';
+import {
+  parseIdParam,
+  readBodyObject,
+  readDateTime,
+  readEnum,
+  readPositiveInt,
+  readRequiredString,
+  throwIfIssues,
+  validationError,
+  type FieldIssues,
+} from '../utils/validation';
+
+export const requestsRouter = Router();
+requestsRouter.use(authenticate);
+
+const SORT_FIELDS = ['createdAt', 'updatedAt', 'deadline', 'priority', 'status'] as const;
+const SORT_ORDERS = ['asc', 'desc'] as const;
+const EDITABLE_FIELDS = ['title', 'description', 'priority', 'category', 'deadline'];
+
+// GET /api/requests
+// Managers see all requests of their organization. Developers see only the requests assigned to them.
+// Query: status, priority, assigneeId, createdFrom, createdTo, deadlineFrom, deadlineTo,
+//        sortBy (createdAt | updatedAt | deadline | priority | status), sortOrder (asc | desc), page, limit
+requestsRouter.get('/', requireRole('manager', 'developer'), async (req, res) => {
+  const query = req.query as Record<string, unknown>;
+  const issues: FieldIssues = {};
+
+  const filters: ListFilters = {
+    status: readEnum(query, 'status', issues, STATUSES, false),
+    priority: readEnum(query, 'priority', issues, PRIORITIES, false),
+    assigneeId: readPositiveInt(query, 'assigneeId', issues, { required: false }),
+    createdFrom: readDateTime(query, 'createdFrom', issues, false),
+    createdTo: readDateTime(query, 'createdTo', issues, false),
+    deadlineFrom: readDateTime(query, 'deadlineFrom', issues, false),
+    deadlineTo: readDateTime(query, 'deadlineTo', issues, false),
+    sortBy: readEnum(query, 'sortBy', issues, SORT_FIELDS, false) ?? 'createdAt',
+    sortOrder: readEnum(query, 'sortOrder', issues, SORT_ORDERS, false) ?? 'desc',
+    page: readPositiveInt(query, 'page', issues, { required: false }) ?? 1,
+    limit: readPositiveInt(query, 'limit', issues, { required: false, max: 100 }) ?? 20,
+  };
+  throwIfIssues(issues);
+
+  res.json(await listRequests(req.user!, filters));
+});
+
+// POST /api/requests   (managers only)
+// body: { title, description, priority, category, deadline }
+// The organization, creator, status and reference number are set by the server. Anything else in the body is ignored.
+requestsRouter.post('/', requireRole('manager'), async (req, res) => {
+  const body = readBodyObject(req.body);
+  const issues: FieldIssues = {};
+  const title = readRequiredString(body, 'title', issues, { maxLength: 200 });
+  const description = readRequiredString(body, 'description', issues, { maxLength: 5000 });
+  const priority = readEnum(body, 'priority', issues, PRIORITIES);
+  const category = readEnum(body, 'category', issues, CATEGORIES);
+  const deadline = readDateTime(body, 'deadline', issues);
+  throwIfIssues(issues);
+
+  const request = await createRequest(req.user!, {
+    title: title!,
+    description: description!,
+    priority: priority!,
+    category: category!,
+    deadline: deadline!,
+  });
+  res.status(201).json({ request });
+});
+
+// GET /api/requests/:id
+requestsRouter.get('/:id', requireRole('manager', 'developer'), async (req, res) => {
+  const id = parseIdParam(req.params.id, 'id');
+  res.json({ request: await getRequestForUser(req.user!, id) });
+});
+
+// PATCH /api/requests/:id   (managers only, and not once the request is Completed)
+// body: { version, and any of: title, description, priority, category, deadline }
+// "version" is the version the client last saw. Status, assignee, organization and reference number cannot be edited here.
+requestsRouter.patch('/:id', requireRole('manager'), async (req, res) => {
+  const id = parseIdParam(req.params.id, 'id');
+  const body = readBodyObject(req.body);
+  const issues: FieldIssues = {};
+
+  const version = readPositiveInt(body, 'version', issues);
+  const changes: RequestChanges = {};
+  if ('title' in body) changes.title = readRequiredString(body, 'title', issues, { maxLength: 200 });
+  if ('description' in body) changes.description = readRequiredString(body, 'description', issues, { maxLength: 5000 });
+  if ('priority' in body) changes.priority = readEnum(body, 'priority', issues, PRIORITIES);
+  if ('category' in body) changes.category = readEnum(body, 'category', issues, CATEGORIES);
+  if ('deadline' in body) changes.deadline = readDateTime(body, 'deadline', issues);
+  throwIfIssues(issues);
+
+  if (!EDITABLE_FIELDS.some((field) => field in body)) {
+    throw validationError({ body: `Provide at least one field to change: ${EDITABLE_FIELDS.join(', ')}.` });
+  }
+
+  res.json({ request: await updateRequest(req.user!, id, version!, changes) });
+});
