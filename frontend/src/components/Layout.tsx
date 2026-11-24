@@ -1,11 +1,22 @@
-import { Building2, CheckSquare, LayoutDashboard, LogOut, Shield, Users } from 'lucide-react';
-import React from 'react';
+import {
+  Building2,
+  CheckSquare,
+  KeyRound,
+  LayoutDashboard,
+  LogOut,
+  Shield,
+  Users,
+} from 'lucide-react';
+import React, { useState } from 'react';
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 export const Layout: React.FC = () => {
   const { user, isLoading, logout } = useAuth();
   const location = useLocation();
+
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -18,6 +29,9 @@ export const Layout: React.FC = () => {
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
+
+  // Mandatory first-time password change check
+  const requiresFirstTimePasswordChange = Boolean(user.mustChangePassword);
 
   const roleBadgeColors = {
     system_admin: 'bg-purple-100 text-purple-700 border-purple-200',
@@ -47,67 +61,69 @@ export const Layout: React.FC = () => {
                 </span>
               </Link>
 
-              {/* Navigation Links based on Role */}
-              <nav className="hidden md:flex space-x-1">
-                {user.role !== 'system_admin' && (
-                  <>
+              {/* Navigation Links based on Role (hidden if mandatory password change) */}
+              {!requiresFirstTimePasswordChange && (
+                <nav className="hidden md:flex space-x-1">
+                  {user.role !== 'system_admin' && (
+                    <>
+                      <Link
+                        to="/"
+                        className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                          location.pathname === '/'
+                            ? 'bg-slate-100 text-slate-900 font-semibold'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                        }`}
+                      >
+                        <LayoutDashboard className="w-4 h-4 mr-1.5" />
+                        Dashboard
+                      </Link>
+                      <Link
+                        to="/requests"
+                        className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                          location.pathname.startsWith('/requests')
+                            ? 'bg-slate-100 text-slate-900 font-semibold'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                        }`}
+                      >
+                        <CheckSquare className="w-4 h-4 mr-1.5" />
+                        Requests
+                      </Link>
+                    </>
+                  )}
+
+                  {user.role === 'manager' && (
                     <Link
-                      to="/"
+                      to="/members"
                       className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                        location.pathname === '/'
+                        location.pathname.startsWith('/members')
                           ? 'bg-slate-100 text-slate-900 font-semibold'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                       }`}
                     >
-                      <LayoutDashboard className="w-4 h-4 mr-1.5" />
-                      Dashboard
+                      <Users className="w-4 h-4 mr-1.5" />
+                      Developers
                     </Link>
+                  )}
+
+                  {user.role === 'system_admin' && (
                     <Link
-                      to="/requests"
+                      to="/admin/organizations"
                       className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                        location.pathname.startsWith('/requests')
+                        location.pathname.startsWith('/admin')
                           ? 'bg-slate-100 text-slate-900 font-semibold'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                       }`}
                     >
-                      <CheckSquare className="w-4 h-4 mr-1.5" />
-                      Requests
+                      <Building2 className="w-4 h-4 mr-1.5" />
+                      Organizations
                     </Link>
-                  </>
-                )}
-
-                {user.role === 'manager' && (
-                  <Link
-                    to="/members"
-                    className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      location.pathname.startsWith('/members')
-                        ? 'bg-slate-100 text-slate-900 font-semibold'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Users className="w-4 h-4 mr-1.5" />
-                    Developers
-                  </Link>
-                )}
-
-                {user.role === 'system_admin' && (
-                  <Link
-                    to="/admin/organizations"
-                    className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      location.pathname.startsWith('/admin')
-                        ? 'bg-slate-100 text-slate-900 font-semibold'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Building2 className="w-4 h-4 mr-1.5" />
-                    Organizations
-                  </Link>
-                )}
-              </nav>
+                  )}
+                </nav>
+              )}
             </div>
 
-            {/* User Profile and Logout */}
-            <div className="flex items-center space-x-4">
+            {/* User Profile and Action Buttons */}
+            <div className="flex items-center space-x-3">
               <div className="hidden sm:flex flex-col items-end">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-semibold text-slate-800">{user.name}</span>
@@ -131,6 +147,16 @@ export const Layout: React.FC = () => {
                 )}
               </div>
 
+              {/* Change Password Button */}
+              <button
+                onClick={() => setIsChangePasswordOpen(true)}
+                title="Change Password"
+                className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200"
+              >
+                <KeyRound className="w-4 h-4" />
+              </button>
+
+              {/* Logout Button */}
               <button
                 onClick={logout}
                 title="Sign out"
@@ -145,8 +171,21 @@ export const Layout: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Outlet />
+        {requiresFirstTimePasswordChange ? (
+          <div className="text-center py-16 text-slate-500">
+            Please update your password to proceed to your dashboard.
+          </div>
+        ) : (
+          <Outlet />
+        )}
       </main>
+
+      {/* Change Password Modal (Mandatory or Normal) */}
+      <ChangePasswordModal
+        isOpen={requiresFirstTimePasswordChange || isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        isMandatory={requiresFirstTimePasswordChange}
+      />
     </div>
   );
 };

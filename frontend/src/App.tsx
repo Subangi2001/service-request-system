@@ -8,8 +8,8 @@ import { Login } from './pages/Login';
 import { Members } from './pages/Members';
 import { RequestDetail } from './pages/RequestDetail';
 import { RequestList } from './pages/RequestList';
+import { ResetPassword } from './pages/ResetPassword';
 
-// Root index route: System Admin goes to /admin/organizations, Managers & Developers go to /dashboard
 const HomeIndex: React.FC = () => {
   const { user } = useAuth();
   if (user?.role === 'system_admin') {
@@ -24,6 +24,7 @@ export const App: React.FC = () => {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/" element={<Layout />}>
             <Route index element={<HomeIndex />} />
             <Route path="requests" element={<RequestList />} />

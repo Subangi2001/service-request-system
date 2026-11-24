@@ -12,11 +12,21 @@ export type UserRecord = {
   email: string;
   role: Role;
   is_active: boolean;
+  must_change_password: boolean;
   organization_id: number | null;
   created_at: Date;
 };
 
-export const USER_COLUMNS = ['id', 'name', 'email', 'role', 'is_active', 'organization_id', 'created_at'];
+export const USER_COLUMNS = [
+  'id',
+  'name',
+  'email',
+  'role',
+  'is_active',
+  'must_change_password',
+  'organization_id',
+  'created_at',
+];
 
 // The shape sent to the client.
 export function toUserResponse(row: UserRecord) {
@@ -26,12 +36,14 @@ export function toUserResponse(row: UserRecord) {
     email: row.email,
     role: row.role,
     isActive: row.is_active,
+    mustChangePassword: row.must_change_password,
     organizationId: row.organization_id,
     createdAt: row.created_at,
   };
 }
 
 // Create a manager or developer inside the given organization.
+// Newly created accounts are marked with must_change_password: true.
 export async function createUser(input: {
   organizationId: number;
   role: 'manager' | 'developer';
@@ -49,6 +61,7 @@ export async function createUser(input: {
         password_hash: passwordHash,
         role: input.role,
         is_active: true,
+        must_change_password: true,
       })
       .returning(USER_COLUMNS);
     return row;

@@ -8,6 +8,7 @@ export type User = {
   name: string;
   email: string;
   role: Role;
+  mustChangePassword?: boolean;
   organizationId: number | null;
   organization?: {
     id: number;
@@ -19,8 +20,9 @@ type AuthContextType = {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,31 +32,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(getStoredToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Check current session on app load
-  useEffect(() => {
-    async function loadUser() {
-      const storedToken = getStoredToken();
-      if (!storedToken) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const res = await apiRequest<{ user: User }>('/api/auth/me');
-        setUser(res.user);
-      } catch (err) {
-        clearStoredToken();
-        setToken(null);
-        setUser(null);
-      } finally {
-        setIsLoading(false);
-      }
+  const loadUser = async () => {
+    const storedToken = getStoredToken();
+    if (!storedToken) {
+      setIsLoading(false);
+      return;
     }
 
+    try {
+      const res = await apiRequest<{ user: User }>('/api/auth/me');
+      setUser(res.user);
+    } catch {
+      clearStoredToken();
+      setToken(null);
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadUser();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<User> => {
     const res = await apiRequest<{ token: string; user: User }>('/api/auth/login', {
       method: 'POST',
       body: { email, password },
@@ -63,6 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setStoredToken(res.token);
     setToken(res.token);
     setUser(res.user);
+    return res.user;
   };
 
   const logout = () => {
@@ -71,8 +73,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    await loadUser();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

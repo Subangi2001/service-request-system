@@ -1,6 +1,7 @@
-import { AlertCircle, Lock, LogIn, Mail } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Eye, EyeOff, KeyRound, Lock, LogIn, Mail, X } from 'lucide-react';
 import React, { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { apiRequest } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 export const Login: React.FC = () => {
@@ -9,10 +10,16 @@ export const Login: React.FC = () => {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // If already logged in, redirect to home
+  // Forgot Password modal state
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotMessage, setForgotMessage] = useState<string | null>(null);
+  const [isForgotSubmitting, setIsForgotSubmitting] = useState(false);
+
   if (user) {
     return <Navigate to="/" replace />;
   }
@@ -29,6 +36,24 @@ export const Login: React.FC = () => {
       setError(err.message || 'Invalid email or password.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotMessage(null);
+    setIsForgotSubmitting(true);
+
+    try {
+      const res = await apiRequest<{ message: string }>('/api/auth/forgot-password', {
+        method: 'POST',
+        body: { email: forgotEmail.trim() },
+      });
+      setForgotMessage(res.message);
+    } catch (err: any) {
+      setForgotMessage(err.message || 'Failed to request password reset.');
+    } finally {
+      setIsForgotSubmitting(false);
     }
   };
 
@@ -68,25 +93,42 @@ export const Login: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@company.test"
-                  className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700">Password</label>
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-slate-700">Password</label>
+                <button
+                  type="button"
+                  onClick={() => setIsForgotOpen(true)}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                >
+                  Forgot password?
+                </button>
+              </div>
               <div className="mt-1 relative rounded-md shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <Lock className="h-5 w-5" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="block w-full pl-10 pr-10 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
 
@@ -107,6 +149,90 @@ export const Login: React.FC = () => {
           </form>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {isForgotOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center space-x-2">
+                <KeyRound className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-lg font-bold text-slate-900">Forgot Password</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setIsForgotOpen(false);
+                  setForgotMessage(null);
+                  setForgotEmail('');
+                }}
+                className="text-slate-400 hover:text-slate-600 rounded-lg p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {forgotMessage ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-950 leading-relaxed flex items-start">
+                  <CheckCircle2 className="w-5 h-5 mr-2 text-indigo-600 flex-shrink-0 mt-0.5" />
+                  <span>{forgotMessage}</span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  If an account matches that email address, a password reset link has been issued. Check your inbox (or local server terminal).
+                </p>
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => {
+                      setIsForgotOpen(false);
+                      setForgotMessage(null);
+                      setForgotEmail('');
+                    }}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotSubmit} className="space-y-4">
+                <p className="text-xs text-slate-500">
+                  Enter your registered email address. We will send password reset instructions to your inbox.
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Your Registered Email
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="name@company.test"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotOpen(false)}
+                    className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isForgotSubmitting || !forgotEmail.trim()}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                  >
+                    {isForgotSubmitting ? 'Sending...' : 'Send Reset Link'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
