@@ -42,8 +42,33 @@ requestsRouter.get('/', requireRole('manager', 'developer'), async (req, res) =>
   const query = req.query as Record<string, unknown>;
   const issues: FieldIssues = {};
 
+  // Support single status or comma-separated list of statuses (e.g. status=Submitted,Under Review)
+  let parsedStatus: typeof STATUSES[number] | typeof STATUSES[number][] | undefined = undefined;
+  if (typeof query.status === 'string' && query.status.trim() !== '') {
+    const parts = query.status.split(',').map((s) => s.trim());
+    const validParts: typeof STATUSES[number][] = [];
+    for (const part of parts) {
+      if ((STATUSES as readonly string[]).includes(part)) {
+        validParts.push(part as typeof STATUSES[number]);
+      } else {
+        issues.status = `status must be one of: ${STATUSES.join(', ')}.`;
+      }
+    }
+    if (validParts.length === 1) {
+      parsedStatus = validParts[0];
+    } else if (validParts.length > 1) {
+      parsedStatus = validParts;
+    }
+  }
+
+  // Parse isOverdue flag
+  let isOverdue: boolean | undefined = undefined;
+  if (query.isOverdue === 'true') isOverdue = true;
+  else if (query.isOverdue === 'false') isOverdue = false;
+
   const filters: ListFilters = {
-    status: readEnum(query, 'status', issues, STATUSES, false),
+    status: parsedStatus,
+    isOverdue,
     priority: readEnum(query, 'priority', issues, PRIORITIES, false),
     assigneeId: readPositiveInt(query, 'assigneeId', issues, { required: false }),
     createdFrom: readDateTime(query, 'createdFrom', issues, false),

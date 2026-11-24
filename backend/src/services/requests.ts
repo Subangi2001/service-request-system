@@ -90,7 +90,8 @@ function scopeToUser(query: Knex.QueryBuilder, user: AuthUser): Knex.QueryBuilde
 }
 
 export type ListFilters = {
-  status?: RequestStatus;
+  status?: RequestStatus | RequestStatus[];
+  isOverdue?: boolean;
   priority?: Priority;
   assigneeId?: number;
   createdFrom?: Date;
@@ -104,7 +105,20 @@ export type ListFilters = {
 };
 
 function applyFilters(query: Knex.QueryBuilder, filters: ListFilters): Knex.QueryBuilder {
-  if (filters.status) query.where('r.status', filters.status);
+  if (filters.status) {
+    if (Array.isArray(filters.status)) {
+      query.whereIn('r.status', filters.status);
+    } else {
+      query.where('r.status', filters.status);
+    }
+  }
+  if (filters.isOverdue !== undefined) {
+    if (filters.isOverdue) {
+      query.whereRaw("r.deadline < now() AND r.status <> 'Completed'");
+    } else {
+      query.whereRaw("(r.deadline >= now() OR r.status = 'Completed')");
+    }
+  }
   if (filters.priority) query.where('r.priority', filters.priority);
   if (filters.assigneeId) query.where('r.assignee_id', filters.assigneeId);
   if (filters.createdFrom) query.where('r.created_at', '>=', filters.createdFrom);
