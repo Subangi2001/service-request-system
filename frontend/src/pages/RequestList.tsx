@@ -8,9 +8,10 @@ import {
   RefreshCw,
   Search,
   User,
+  X,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import { OverdueBadge, PriorityBadge, StatusBadge } from '../components/Badges';
 import { RequestModal } from '../components/RequestModal';
@@ -32,13 +33,17 @@ const PRIORITY_OPTIONS: (Priority | '')[] = ['', 'Low', 'Medium', 'High', 'Criti
 export const RequestList: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Read filters directly from URL search parameters
+  const statusParam = searchParams.get('status') || '';
+  const priorityParam = searchParams.get('priority') || '';
+  const isOverdueParam = searchParams.get('isOverdue') === 'true';
 
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +60,9 @@ export const RequestList: React.FC = () => {
       params.set('sortBy', 'createdAt');
       params.set('sortOrder', 'desc');
 
-      if (statusFilter) params.set('status', statusFilter);
-      if (priorityFilter) params.set('priority', priorityFilter);
+      if (statusParam) params.set('status', statusParam);
+      if (priorityParam) params.set('priority', priorityParam);
+      if (isOverdueParam) params.set('isOverdue', 'true');
 
       const res = await apiRequest<{
         requests: ServiceRequest[];
@@ -75,7 +81,25 @@ export const RequestList: React.FC = () => {
 
   useEffect(() => {
     fetchRequests();
-  }, [page, statusFilter, priorityFilter]);
+  }, [page, statusParam, priorityParam, isOverdueParam]);
+
+  const updateFilter = (key: string, value: string) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (value) {
+      nextParams.set(key, value);
+    } else {
+      nextParams.delete(key);
+    }
+    setPage(1);
+    setSearchParams(nextParams);
+  };
+
+  const clearAllFilters = () => {
+    setSearchParams(new URLSearchParams());
+    setPage(1);
+  };
+
+  const hasActiveFilters = Boolean(statusParam || priorityParam || isOverdueParam);
 
   const filteredRequests = requests.filter(
     (r) =>
@@ -117,6 +141,37 @@ export const RequestList: React.FC = () => {
         </div>
       </div>
 
+      {/* Active Filter Notification Bar */}
+      {hasActiveFilters && (
+        <div className="bg-indigo-50 border border-indigo-200 px-4 py-2.5 rounded-lg flex items-center justify-between text-xs text-indigo-900">
+          <div className="flex items-center space-x-2">
+            <span className="font-semibold">Filtered by:</span>
+            {statusParam && (
+              <span className="bg-white px-2 py-0.5 rounded border border-indigo-200">
+                Status: {statusParam}
+              </span>
+            )}
+            {priorityParam && (
+              <span className="bg-white px-2 py-0.5 rounded border border-indigo-200">
+                Priority: {priorityParam}
+              </span>
+            )}
+            {isOverdueParam && (
+              <span className="bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-semibold border border-rose-200">
+                Overdue Only
+              </span>
+            )}
+          </div>
+          <button
+            onClick={clearAllFilters}
+            className="inline-flex items-center text-indigo-600 hover:text-indigo-800 font-semibold"
+          >
+            <X className="w-3.5 h-3.5 mr-1" />
+            Clear Filters
+          </button>
+        </div>
+      )}
+
       {/* Filters and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center">
         {/* Search */}
@@ -136,14 +191,13 @@ export const RequestList: React.FC = () => {
           <div className="flex items-center space-x-2">
             <Filter className="w-4 h-4 text-slate-400" />
             <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
+              value={statusParam.includes(',') ? '' : statusParam}
+              onChange={(e) => updateFilter('status', e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="">All Statuses</option>
+              <option value="">
+                {statusParam.includes(',') ? `Multiple (${statusParam})` : 'All Statuses'}
+              </option>
               {STATUS_OPTIONS.filter(Boolean).map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -154,11 +208,8 @@ export const RequestList: React.FC = () => {
 
           <div>
             <select
-              value={priorityFilter}
-              onChange={(e) => {
-                setPriorityFilter(e.target.value);
-                setPage(1);
-              }}
+              value={priorityParam}
+              onChange={(e) => updateFilter('priority', e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">All Priorities</option>
