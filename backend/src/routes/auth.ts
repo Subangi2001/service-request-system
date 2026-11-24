@@ -153,7 +153,7 @@ authRouter.post('/forgot-password', async (req, res) => {
   // SIMULATE EMAIL: In production this sends an email via SMTP/SES/SendGrid.
   // Here, we log it to the secure server console only. The client NEVER receives the token!
   console.log('\n=================== [OUTGOING EMAIL SIMULATOR] ===================');
-  console.log(`To: ${email.trim()}`);
+  console.log(`To: ${email!.trim()}`);
   console.log('Subject: Password Reset Request');
   console.log(`Reset Link: http://localhost:5173/reset-password?token=${rawToken}`);
   console.log('==================================================================\n');
